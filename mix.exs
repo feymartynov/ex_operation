@@ -52,7 +52,7 @@ defmodule ExOperation.MixProject do
       maintainers: ["Fey Martynov"],
       licenses: ~w(MIT),
       links: %{github: "https://github.com/feymartynov/ex_operation"},
-      files: ~w(lib priv/templates) ++ ~w(LICENSE mix.exs README.md)
+      files: ~w(lib mix.exs LICENSE README.md)
     ]
   end
 end
