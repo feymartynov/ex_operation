@@ -72,3 +72,12 @@ def deps do
   ]
 end
 ```
+
+Add to your `config/config.exs`:
+
+```elixir
+config :ex_operation,
+  repo: MyApp.Repo
+```
+
+where `MyApp.Repo` is the name of your Ecto.Repo module.
