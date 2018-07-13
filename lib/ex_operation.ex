@@ -22,7 +22,7 @@ defmodule ExOperation do
     def call(operation) do
       operation
       |> find(:book, schema: MyApp.Book, preload: [:author])
-      |> find(:author, schema: MyApp.Author, id_param: :author_id, optional: true)
+      |> find(:author, schema: MyApp.Author, id_path: [:author_id], optional: true)
       |> step(:result, &do_update(operation.context, &1))
       |> after_commit(:notification, &send_notifcation(&1.result))
     end
