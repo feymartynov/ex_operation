@@ -1,7 +1,7 @@
 defmodule ExOperation.Operation do
   @moduledoc false
 
-  defstruct multi: nil, context: %{}, params: %{}, after_commit_callbacks: []
+  defstruct multi: nil, ids: [], context: %{}, params: %{}, after_commit_callbacks: []
 
   @type t :: %__MODULE__{}
   @callback call(operation :: t()) :: t()

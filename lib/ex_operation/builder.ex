@@ -3,11 +3,11 @@ defmodule ExOperation.Builder do
 
   alias ExOperation.Operation
 
-  @spec build(module :: Module.t(), context :: map(), raw_params :: map()) ::
+  @spec build(module :: atom(), context :: map(), raw_params :: map()) ::
           {:ok | Operation.t()} | {:error, any()}
-  def build(module, context \\ %{}, raw_params \\ %{}) do
+  def build(module, context \\ %{}, raw_params \\ %{}, opts \\ []) do
     with {:ok, changeset} <- build_changeset(module, raw_params) do
-      build_operation(module, context, Params.to_map(changeset))
+      build_operation(module, context, Params.to_map(changeset), opts)
     end
   end
 
@@ -30,8 +30,16 @@ defmodule ExOperation.Builder do
     end
   end
 
-  defp build_operation(module, context, params) do
-    operation = %Operation{multi: Ecto.Multi.new(), context: context, params: params}
+  defp build_operation(module, context, params, opts) do
+    parent_ids = opts[:parent_ids] || []
+    id = opts[:id] || make_ref()
+
+    operation = %Operation{
+      multi: Ecto.Multi.new(),
+      ids: parent_ids ++ [id],
+      context: context,
+      params: params
+    }
 
     case module |> apply(:call, [operation]) do
       %Operation{} = operation -> {:ok, operation}

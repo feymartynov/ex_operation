@@ -47,7 +47,8 @@ defmodule ExOperationTest do
   end
 
   test "fail on failed step" do
-    assert FailingOperation |> ExOperation.run(%{}, %{}) == {:error, :result, :failed, %{}}
+    result = FailingOperation |> ExOperation.run(%{}, %{})
+    assert result == {:error, {:main, :result}, :failed, %{}}
   end
 
   defmodule FinderOperation do
@@ -69,7 +70,8 @@ defmodule ExOperationTest do
 
   test "fail on not found entity" do
     params = %{"id" => "1234567"}
-    assert FinderOperation |> ExOperation.run(%{}, params) == {:error, :post, :not_found, %{}}
+    result = FinderOperation |> ExOperation.run(%{}, params)
+    assert result == {:error, {:main, :post}, :not_found, %{}}
   end
 
   defmodule DeepFinderOperation do
@@ -117,13 +119,13 @@ defmodule ExOperationTest do
     use ExOperation.Operation, params: %{greeting!: :string}
 
     def call(operation) do
-      operation |> suboperation(SubOperation, %{message: operation.params.greeting})
+      operation |> suboperation(SubOperation, %{message: operation.params.greeting}, id: :sub)
     end
   end
 
   test "suboperation with static params" do
     assert {:ok, txn} = StaticWrapperOperation |> ExOperation.run(%{}, %{"greeting" => "hello"})
-    assert txn.result == "hello"
+    assert txn.sub.result == "hello"
   end
 
   defmodule DynamicWrapperOperation do
@@ -132,13 +134,56 @@ defmodule ExOperationTest do
     def call(operation) do
       operation
       |> step(:object, fn _ -> {:ok, "world"} end)
-      |> suboperation(SubOperation, &%{message: operation.params.greeting <> " " <> &1.object})
+      |> suboperation(
+        SubOperation,
+        &%{message: operation.params.greeting <> " " <> &1.object},
+        id: :sub
+      )
     end
   end
 
   test "suboperation with dynamic params" do
     assert {:ok, txn} = DynamicWrapperOperation |> ExOperation.run(%{}, %{"greeting" => "hello"})
-    assert txn.result == "hello world"
+    assert txn.sub.result == "hello world"
+  end
+
+  defmodule InterferingOperation do
+    use ExOperation.Operation
+
+    def call(operation) do
+      operation
+      |> suboperation(SubOperation, %{message: "one"}, id: :one)
+      |> suboperation(SubOperation, %{message: "two"}, id: :two)
+    end
+  end
+
+  test "suboperations with interfering step names" do
+    assert {:ok, txn} = InterferingOperation |> ExOperation.run(%{}, %{})
+    assert txn.one.result == "one"
+    assert txn.two.result == "two"
+  end
+
+  defmodule WrapperOperation do
+    use ExOperation.Operation, params: %{greeting!: :string}
+
+    def call(operation) do
+      operation
+      |> suboperation(SubOperation, %{message: operation.params.greeting}, id: :sub1)
+    end
+  end
+
+  defmodule DoubleWrapperOperation do
+    use ExOperation.Operation, params: %{greeting!: :string}
+
+    def call(operation) do
+      operation
+      |> suboperation(WrapperOperation, %{greeting: operation.params.greeting}, id: :sub2)
+    end
+  end
+
+  test "nested suboperations" do
+    assert {:ok, txn} = DoubleWrapperOperation |> ExOperation.run(%{}, %{"greeting" => "hello"})
+    assert txn.sub2.sub1.result == "hello"
   end
 
   defmodule AfterCommitOperation do

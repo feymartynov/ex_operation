@@ -106,15 +106,16 @@ defmodule ExOperation do
   If any after commit callbacks are scheduled they get called after database transaction commit and
   before the return.
   """
-  @spec run(module :: Module.t(), context :: map(), raw_params :: map()) ::
+  @spec run(module :: atom(), context :: map(), raw_params :: map()) ::
           {:ok, map()}
           | {:error, Ecto.Changeset.t()}
           | {:error, step_name :: any(), reason :: any(), txn :: map()}
   def run(module, context \\ %{}, raw_params \\ %{}) do
-    with {:ok, operation} <- ExOperation.Builder.build(module, context, raw_params),
+    with {:ok, operation} <- ExOperation.Builder.build(module, context, raw_params, id: :main),
          {:ok, txn} <- operation.multi |> repo().transaction() do
-      for callback <- operation.after_commit_callbacks, do: callback.(txn)
-      {:ok, txn}
+      transformed_txn = txn |> ExOperation.Helpers.transform_txn(operation)
+      for callback <- operation.after_commit_callbacks, do: callback.(transformed_txn)
+      {:ok, transformed_txn}
     end
   end
 

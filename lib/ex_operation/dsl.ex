@@ -3,7 +3,7 @@ defmodule ExOperation.DSL do
   Functions that help defining operations.
   """
 
-  alias ExOperation.{Operation, Builder}
+  alias ExOperation.{Operation, Builder, Helpers}
 
   @type name :: any()
   @type txn :: [{name(), any()}]
@@ -11,7 +11,7 @@ defmodule ExOperation.DSL do
   @doc """
   Adds an arbitrary step to the operation pipeline.
 
-  `callback` is a function that accepts a map of changes so far where keys are names of preivous
+  `callback` is a function that accepts a map of changes so far where keys are names of previous
   steps and values are their return values.
   It must return either `{:ok, result}` or `{:error, reason}` tuple.
   """
@@ -21,7 +21,12 @@ defmodule ExOperation.DSL do
           callback :: (txn :: txn() -> {:ok | :error, any()})
         ) :: Operation.t()
   def step(operation, name, callback) do
-    %{operation | multi: operation.multi |> Ecto.Multi.run(name, callback)}
+    [operation_id | wrapper_ids] = Enum.reverse(operation.ids)
+    step_key = wrapper_ids |> Enum.reduce({operation_id, name}, fn id, acc -> {id, acc} end)
+
+    fun = fn txn -> txn |> Helpers.transform_txn(operation) |> callback.() end
+
+    %{operation | multi: operation.multi |> Ecto.Multi.run(step_key, fun)}
   end
 
   @doc """
@@ -74,7 +79,6 @@ defmodule ExOperation.DSL do
 
   @doc """
   Embeds another operation into the current one.
-  Step names *must not interfere*.
 
   `module` is the suboperation module.
 
@@ -82,25 +86,33 @@ defmodule ExOperation.DSL do
   and returns a map. The map will be passed to the suboperation.
 
   Context is passed without changes.
+
+  ## Options
+    * `:id` – unique term to identify the suboperation (optional).
   """
   @spec suboperation(
           operation :: Operation.t(),
-          module :: Module.t(),
-          params_or_fun :: map() | (txn :: txn() -> map())
+          module :: atom(),
+          params_or_fun :: map() | (txn :: txn() -> map()),
+          opts :: keyword()
         ) :: Operation.t()
-  def suboperation(operation, module, params_or_fun) do
+  def suboperation(operation, module, params_or_fun, opts \\ []) do
     multi =
       Ecto.Multi.merge(operation.multi, fn txn ->
-        params = suboperation_params(params_or_fun, txn)
-        {:ok, suboperation} = Builder.build(module, operation.context, params)
+        params = suboperation_params(operation, params_or_fun, txn)
+        opts = opts |> Keyword.put(:parent_ids, operation.ids)
+        {:ok, suboperation} = Builder.build(module, operation.context, params, opts)
         suboperation.multi
       end)
 
     %{operation | multi: multi}
   end
 
-  defp suboperation_params(map, _txn) when is_map(map), do: map
-  defp suboperation_params(fun, txn) when is_function(fun), do: fun.(txn)
+  defp suboperation_params(_operation, map, _txn) when is_map(map), do: map
+
+  defp suboperation_params(operation, fun, txn) when is_function(fun) do
+    txn |> Helpers.transform_txn(operation) |> fun.()
+  end
 
   @doc """
   Schedules a `callback` function to run after successful database transaction commit.
