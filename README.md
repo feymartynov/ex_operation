@@ -51,6 +51,10 @@ with {:ok, %{result: book}} <- MyApp.Book.Update |> ExOperation.run(context, par
 end
 ```
 
+### Usage with Phoenix
+
+An example Phoenix app can be found here: [ex_operation_phoenix_example](https://github.com/feymartynov/ex_operation_phoenix_example).
+
 ## Features
 
 * [Railway oriented](https://fsharpforfunandprofit.com/rop/) domain logic pipeline.
