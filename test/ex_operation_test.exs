@@ -202,6 +202,59 @@ defmodule ExOperationTest do
     assert id
   end
 
+  defmodule ContextOverrideSubOperation do
+    use ExOperation.Operation, params: %{id: :integer}
+
+    def call(operation) do
+      operation
+      |> find(:user,
+        schema: ExOperation.Test.User,
+        context_getter: fn
+          %{user: %ExOperation.Test.User{} = user} -> {:ok, user}
+          _ -> :not_found
+        end
+      )
+      |> step(:passed_value, fn _ -> {:ok, operation.context[:foo]} end)
+    end
+  end
+
+  defmodule ContextOverrideOperation do
+    use ExOperation.Operation, params: %{}
+
+    def call(operation) do
+      operation
+      |> suboperation(ContextOverrideSubOperation, %{},
+        id: :sub,
+        context: %{user: %ExOperation.Test.User{name: "John Doe"}, foo: :baz}
+      )
+    end
+  end
+
+  test "override suboperation context" do
+    assert {:ok, txn} = ContextOverrideOperation |> ExOperation.run(%{foo: :bar}, %{})
+    assert txn.sub.user.name == "John Doe"
+    assert txn.sub.passed_value == :baz
+  end
+
+  defmodule ContextGetterOperation do
+    use ExOperation.Operation, params: %{}
+
+    def call(operation) do
+      operation
+      |> step(:build_user, fn _ -> {:ok, %ExOperation.Test.User{name: "John Doe"}} end)
+      |> suboperation(ContextOverrideSubOperation, %{},
+        id: :sub,
+        context: &Map.put(operation.context, :user, &1.build_user)
+      )
+    end
+  end
+
+  test "pass schema and plain value to suboperation through context" do
+    assert {:ok, txn} = ContextGetterOperation |> ExOperation.run(%{foo: :bar}, %{})
+    assert txn.sub.user.name == "John Doe"
+    assert txn.sub.passed_value == :bar
+  end
+
   test "return the configured repo" do
     assert ExOperation.repo() == ExOperation.Test.Repo
   end
