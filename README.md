@@ -23,11 +23,11 @@ defmodule MyApp.Book.Update do
     operation
     |> find(:book, schema: MyApp.Book, preload: [:author])
     |> find(:author, schema: MyApp.Author, id_path: [:author_id], optional: true)
-    |> step(:result, &do_update(operation.context, &1))
-    |> after_commit(:notification, &send_notifcation(&1.result))
+    |> step(:result, &do_update(operation.context, &1, operation.params))
+    |> after_commit(&send_notifcation(&1.result))
   end
 
-  defp do_update(context, txn) do
+  defp do_update(context, txn, params) do
     txn.book
     |> Ecto.Changeset.cast(params, [:title])
     |> Ecto.Changeset.put_assoc(:author, txn.author)
