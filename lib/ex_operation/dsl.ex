@@ -3,7 +3,7 @@ defmodule ExOperation.DSL do
   Functions that help defining operations.
   """
 
-  alias ExOperation.{Operation, Builder, Helpers}
+  alias ExOperation.{Builder, Helpers, Operation}
 
   @type name :: any()
   @type txn :: [{name(), any()}]

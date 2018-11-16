@@ -1,4 +1,6 @@
 defmodule ExOperation.Test.Factory do
+  @moduledoc false
+
   def build(:user) do
     %ExOperation.Test.User{}
   end

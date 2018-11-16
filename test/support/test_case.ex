@@ -1,4 +1,6 @@
 defmodule ExOperation.TestCase do
+  @moduledoc false
+
   use ExUnit.CaseTemplate
   alias ExOperation.Test.Repo
 
