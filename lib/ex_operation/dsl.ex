@@ -134,11 +134,43 @@ defmodule ExOperation.DSL do
   defp suboperation_params(fun, txn) when is_function(fun, 1), do: fun.(txn)
 
   @doc """
+  Changes `operation`'s scenario depending on results of previous steps using `callback`.
+
+  The `callback` receives the `operation` and results of previous steps.
+  It must return a new `operation`.
+  """
+  @spec defer(
+          operation :: Operation.t(),
+          callback :: (Operation.t(), txn() -> Operation.t())
+        ) :: Operation.t()
+  def defer(operation, callback) when is_function(callback, 2) do
+    multi =
+      Ecto.Multi.merge(operation.multi, fn txn ->
+        txn = txn |> Helpers.transform_txn(operation)
+
+        %Operation{multi: multi} =
+          operation
+          |> Map.put(:multi, Ecto.Multi.new())
+          |> callback.(txn)
+
+        multi
+      end)
+
+    %{operation | multi: multi}
+  end
+
+  @doc """
   Schedules a `callback` function to run after successful database transaction commit.
 
-  The `callback` receives the map of results of each step. The return value is ignored.
+  The `callback` receives the transaction map and must return `{:ok, txn}` or `{:error, reason}`
+  like `step/2`'s callback does.
+
+  All hooks are being applied in the same order they were added.
   """
-  @spec after_commit(operation :: Operation.t(), callback :: (map() -> any())) :: Operation.t()
+  @spec after_commit(
+          operation :: Operation.t(),
+          callback :: (txn() -> {:ok, txn()} | {:error, term()})
+        ) :: Operation.t()
   def after_commit(operation, callback) when is_function(callback, 1) do
     %{operation | after_commit_callbacks: operation.after_commit_callbacks ++ [callback]}
   end

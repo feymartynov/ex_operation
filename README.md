@@ -24,7 +24,7 @@ defmodule MyApp.Book.Update do
     |> find(:book, schema: MyApp.Book, preload: [:author])
     |> find(:author, schema: MyApp.Author, id_path: [:author_id], optional: true)
     |> step(:result, &do_update(operation.context, &1, operation.params))
-    |> after_commit(&send_notifcation(&1.result))
+    |> after_commit(&send_notifcation(&1))
   end
 
   defp do_update(context, txn, params) do
@@ -35,8 +35,9 @@ defmodule MyApp.Book.Update do
     |> MyApp.Repo.update()
   end
 
-  defp send_notification(updated_book) do
+  defp send_notification(txn) do
     # …
+    {:ok, txn}
   end
 end
 ```
@@ -63,6 +64,7 @@ An example Phoenix app can be found here: [ex_operation_phoenix_example](https:/
 * Convenient fetching of entitites from the database.
 * Context passing. Useful for passing current user, current locale etc.
 * Composable operations: one operation can call another through `suboperation/3` function.
+* Changing operation scenario based on previous steps results with `defer/2`.
 * After commit hooks for scheduling asynchronous things.
 
 ## Installation

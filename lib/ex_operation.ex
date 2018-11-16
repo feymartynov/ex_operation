@@ -113,10 +113,18 @@ defmodule ExOperation do
   def run(module, context \\ %{}, raw_params \\ %{}) do
     with {:ok, operation} <- ExOperation.Builder.build(module, context, raw_params, id: :main),
          {:ok, txn} <- operation.multi |> repo().transaction() do
-      transformed_txn = txn |> ExOperation.Helpers.transform_txn(operation)
-      for callback <- operation.after_commit_callbacks, do: callback.(transformed_txn)
-      {:ok, transformed_txn}
+      txn = txn |> ExOperation.Helpers.transform_txn(operation)
+      operation |> run_after_commit_callbacks(txn)
     end
+  end
+
+  defp run_after_commit_callbacks(operation, txn) do
+    Enum.reduce_while(operation.after_commit_callbacks, {:ok, txn}, fn callback, {:ok, acc} ->
+      case callback.(acc) do
+        {:ok, txn} -> {:cont, {:ok, txn}}
+        other -> {:halt, other}
+      end
+    end)
   end
 
   @doc false
