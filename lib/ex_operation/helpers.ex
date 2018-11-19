@@ -24,4 +24,15 @@ defmodule ExOperation.Helpers do
       acc |> Map.put(wrapper, txn |> unwrap([wrapper]) |> mapify())
     end)
   end
+
+  @doc """
+  Asserts callback functions to return `{:ok, result}` or `{:error, reason}` tuple.
+  """
+  def assert_return_value({:ok, _} = result), do: result
+  def assert_return_value({:error, _} = result), do: result
+
+  def assert_return_value(other) do
+    message = "Expected `{:ok, result}` or {:error, reason}`. Got `#{inspect(other)}`."
+    raise ExOperation.AssertionError, message
+  end
 end

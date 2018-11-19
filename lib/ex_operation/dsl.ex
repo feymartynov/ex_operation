@@ -3,7 +3,7 @@ defmodule ExOperation.DSL do
   Functions that help defining operations.
   """
 
-  alias ExOperation.{Builder, Helpers, Operation}
+  alias ExOperation.{AssertionError, Builder, DeferError, Helpers, Operation, StepError}
 
   @type name :: any()
   @type txn :: [{name(), any()}]
@@ -24,9 +24,19 @@ defmodule ExOperation.DSL do
     [operation_id | wrapper_ids] = Enum.reverse(operation.ids)
     step_key = wrapper_ids |> Enum.reduce({operation_id, name}, fn id, acc -> {id, acc} end)
 
-    fun = fn txn -> txn |> Helpers.transform_txn(operation) |> callback.() end
+    fun = fn txn ->
+      operation |> run_step_callback(name, callback, Helpers.transform_txn(txn, operation))
+    end
 
     %{operation | multi: operation.multi |> Ecto.Multi.run(step_key, fun)}
+  end
+
+  defp run_step_callback(operation, name, callback, txn) do
+    txn |> callback.() |> Helpers.assert_return_value()
+  rescue
+    e ->
+      attrs = [operation: operation, txn: txn, name: name, exception: e]
+      reraise StepError, attrs, System.stacktrace()
   end
 
   @doc """
@@ -151,12 +161,24 @@ defmodule ExOperation.DSL do
         %Operation{multi: multi} =
           operation
           |> Map.put(:multi, Ecto.Multi.new())
-          |> callback.(txn)
+          |> run_defer_callback(callback, txn)
 
         multi
       end)
 
     %{operation | multi: multi}
+  end
+
+  defp run_defer_callback(operation, callback, txn) do
+    case callback.(operation, txn) do
+      %Operation{} = result ->
+        result
+
+      other ->
+        raise AssertionError, "Expected `%ExOperation.Operation{}`. Got `#{inspect(other)}`."
+    end
+  rescue
+    e -> reraise DeferError, [operation: operation, txn: txn, exception: e], System.stacktrace()
   end
 
   @doc """

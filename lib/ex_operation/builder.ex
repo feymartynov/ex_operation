@@ -35,6 +35,7 @@ defmodule ExOperation.Builder do
     id = opts[:id] || make_ref()
 
     operation = %Operation{
+      module: module,
       multi: Ecto.Multi.new(),
       ids: parent_ids ++ [id],
       context: context,

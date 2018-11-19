@@ -23,11 +23,11 @@ defmodule ExOperation do
       operation
       |> find(:book, schema: MyApp.Book, preload: [:author])
       |> find(:author, schema: MyApp.Author, id_path: [:author_id], optional: true)
-      |> step(:result, &do_update(operation.context, &1))
-      |> after_commit(:notification, &send_notifcation(&1.result))
+      |> step(:result, &do_update(operation.context, &1, operation.params))
+      |> after_commit(&send_notifcation(&1))
     end
 
-    defp do_update(context, txn) do
+    defp do_update(context, txn, params) do
       txn.book
       |> Ecto.Changeset.cast(params, [:title])
       |> Ecto.Changeset.put_assoc(:author, txn.author)
@@ -35,8 +35,9 @@ defmodule ExOperation do
       |> MyApp.Repo.update()
     end
 
-    defp send_notification(updated_book) do
+    defp send_notification(txn) do
       # …
+      {:ok, txn}
     end
   end
   ```
@@ -83,6 +84,8 @@ defmodule ExOperation do
   where `MyApp.Repo` is the name of your Ecto.Repo module.
   """
 
+  alias ExOperation.{AfterCommitError, Builder, Helpers}
+
   @doc """
   Call an operation from `module`.
   `module` must implement `ExOperation.Operation` behaviour.
@@ -111,20 +114,28 @@ defmodule ExOperation do
           | {:error, Ecto.Changeset.t()}
           | {:error, step_name :: any(), reason :: any(), txn :: map()}
   def run(module, context \\ %{}, raw_params \\ %{}) do
-    with {:ok, operation} <- ExOperation.Builder.build(module, context, raw_params, id: :main),
+    with {:ok, operation} <- Builder.build(module, context, raw_params, id: :main),
          {:ok, txn} <- operation.multi |> repo().transaction() do
-      txn = txn |> ExOperation.Helpers.transform_txn(operation)
+      txn = txn |> Helpers.transform_txn(operation)
       operation |> run_after_commit_callbacks(txn)
     end
   end
 
   defp run_after_commit_callbacks(operation, txn) do
     Enum.reduce_while(operation.after_commit_callbacks, {:ok, txn}, fn callback, {:ok, acc} ->
-      case callback.(acc) do
+      case operation |> run_after_commit_callback(callback, acc) do
         {:ok, txn} -> {:cont, {:ok, txn}}
         other -> {:halt, other}
       end
     end)
+  end
+
+  defp run_after_commit_callback(operation, callback, txn) do
+    txn |> callback.() |> Helpers.assert_return_value()
+  rescue
+    e ->
+      attrs = [operation: operation, txn: txn, exception: e]
+      reraise AfterCommitError, attrs, System.stacktrace()
   end
 
   @doc false
