@@ -76,7 +76,7 @@ Add the following to your `mix.exs` and then run `mix deps.get`:
 ```elixir
 def deps do
   [
-    {:ex_operation, "~> 0.3.0"}
+    {:ex_operation, "~> 0.4.0"}
   ]
 end
 ```
