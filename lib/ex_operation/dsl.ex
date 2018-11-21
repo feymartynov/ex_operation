@@ -8,6 +8,9 @@ defmodule ExOperation.DSL do
   @type name :: any()
   @type txn :: [{name(), any()}]
 
+  @ecto_path Mix.Project.deps_paths().ecto
+  @ecto_version Mix.Project.in_project(:ecto, @ecto_path, & &1.project()[:version])
+
   @doc """
   Adds an arbitrary step to the operation pipeline.
 
@@ -23,15 +26,27 @@ defmodule ExOperation.DSL do
   def step(operation, name, callback) do
     [operation_id | wrapper_ids] = Enum.reverse(operation.ids)
     step_key = wrapper_ids |> Enum.reduce({operation_id, name}, fn id, acc -> {id, acc} end)
-
-    fun = fn txn ->
-      operation |> run_step_callback(name, callback, Helpers.transform_txn(txn, operation))
-    end
-
+    fun = build_step_fun(operation, name, callback)
     %{operation | multi: operation.multi |> Ecto.Multi.run(step_key, fun)}
   end
 
+  # `Ecto.Multi.run/2` in Ecto 3 gets a callback with two arguments
+  # while in Ecto 2 it gets a callback with one argument.
+  if @ecto_version |> Version.parse!() |> Version.match?(">= 3.0.0") do
+    defp build_step_fun(operation, name, callback) do
+      fn _repo, txn -> run_step_callback(operation, name, callback, txn) end
+    end
+  else
+    defp build_step_fun(operation, name, callback) do
+      fn txn -> run_step_callback(operation, name, callback, txn) end
+    end
+  end
+
   defp run_step_callback(operation, name, callback, txn) do
+    operation |> do_run_step_callback(name, callback, Helpers.transform_txn(txn, operation))
+  end
+
+  defp do_run_step_callback(operation, name, callback, txn) do
     txn |> callback.() |> Helpers.assert_return_value()
   rescue
     e ->
