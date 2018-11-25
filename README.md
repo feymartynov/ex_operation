@@ -4,6 +4,14 @@ A library for making domain operations wrapped in a single database transaction.
 
 **WARNING:** This library is in active development state. Breaking changes are possible between minor releases.
 
+## Resources
+
+* [Documentation](https://hexdocs.pm/ex_operation)
+* [Hex package](https://hex.pm/packages/ex_operation)
+* [ExOperation: organizing business logic with operations in Elixir](https://medium.com/@feymartynov/exoperation-organizing-business-logic-with-operations-in-elixir-ce28a5f8b5ef)
+* [Talk about ExOperation at Elixir-Lang Moscow meetup](https://youtu.be/ZIib_TV1tmo?t=2360) (in Russian)
+* [Example Phoenix app](https://github.com/feymartynov/ex_operation_phoenix_example)
+
 ## Example
 
 An operation definition:
