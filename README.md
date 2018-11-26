@@ -1,5 +1,7 @@
 # ExOperation
 
+[![Build Status](https://travis-ci.org/feymartynov/ex_operation.svg?branch=master)](https://travis-ci.org/feymartynov/ex_operation)
+
 A library for making domain operations wrapped in a single database transaction.
 
 **WARNING:** This library is in active development state. Breaking changes are possible between minor releases.
