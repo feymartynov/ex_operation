@@ -70,13 +70,15 @@ defmodule ExOperation.AfterCommitTest do
 
     def call(operation) do
       operation
+      |> after_commit(fn txn -> {:ok, Map.put(txn, :one, :two)} end)
       |> suboperation(AfterCommitInSuboperationSuboperation, %{})
+      |> after_commit(fn txn -> {:ok, Map.put(txn, :three, :four)} end)
     end
   end
 
   test "call after commit callback defined in suboperation" do
     assert {:ok, txn} = AfterCommitInSuboperationOperation |> ExOperation.run(%{}, %{})
-    assert %{foo: :bar} = txn
+    assert %{one: :two, foo: :bar, three: :four} = txn
   end
 
   defmodule AfterCommitInDeferOperation do
@@ -84,14 +86,16 @@ defmodule ExOperation.AfterCommitTest do
 
     def call(operation) do
       operation
+      |> after_commit(fn txn -> {:ok, Map.put(txn, :one, :two)} end)
       |> defer(fn op, _txn ->
         op |> after_commit(fn txn -> {:ok, Map.put(txn, :foo, :bar)} end)
       end)
+      |> after_commit(fn txn -> {:ok, Map.put(txn, :three, :four)} end)
     end
   end
 
   test "call after commit callback defined in defer" do
     assert {:ok, txn} = AfterCommitInDeferOperation |> ExOperation.run(%{}, %{})
-    assert %{foo: :bar} = txn
+    assert %{one: :two, foo: :bar, three: :four} = txn
   end
 end

@@ -204,7 +204,7 @@ defmodule ExOperation.DSL do
         {:ok, &run_after_commit_callback(operation, callback, &1)}
       end)
 
-    key = {:__after_commit__, length(operation.multi.operations) + 1}
+    key = {:__after_commit__, :os.system_time(:nanosecond)}
     %{operation | multi: operation.multi |> Ecto.Multi.run(key, fun)}
   end
 
