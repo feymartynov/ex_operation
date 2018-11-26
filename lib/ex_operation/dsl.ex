@@ -3,7 +3,8 @@ defmodule ExOperation.DSL do
   Functions that help defining operations.
   """
 
-  alias ExOperation.{AssertionError, Builder, DeferError, Helpers, Operation, StepError}
+  alias ExOperation.{Builder, Helpers, Operation}
+  alias ExOperation.{AfterCommitError, AssertionError, DeferError, StepError}
 
   @type name :: any()
   @type txn :: [{name(), any()}]
@@ -26,27 +27,16 @@ defmodule ExOperation.DSL do
   def step(operation, name, callback) do
     [operation_id | wrapper_ids] = Enum.reverse(operation.ids)
     step_key = wrapper_ids |> Enum.reduce({operation_id, name}, fn id, acc -> {id, acc} end)
-    fun = build_step_fun(operation, name, callback)
+
+    fun =
+      build_multi_run_fun(fn txn ->
+        run_step_callback(operation, name, callback, Helpers.transform_txn(txn, operation))
+      end)
+
     %{operation | multi: operation.multi |> Ecto.Multi.run(step_key, fun)}
   end
 
-  # `Ecto.Multi.run/2` in Ecto 3 gets a callback with two arguments
-  # while in Ecto 2 it gets a callback with one argument.
-  if @ecto_version |> Version.parse!() |> Version.match?(">= 3.0.0") do
-    defp build_step_fun(operation, name, callback) do
-      fn _repo, txn -> run_step_callback(operation, name, callback, txn) end
-    end
-  else
-    defp build_step_fun(operation, name, callback) do
-      fn txn -> run_step_callback(operation, name, callback, txn) end
-    end
-  end
-
   defp run_step_callback(operation, name, callback, txn) do
-    operation |> do_run_step_callback(name, callback, Helpers.transform_txn(txn, operation))
-  end
-
-  defp do_run_step_callback(operation, name, callback, txn) do
     txn |> callback.() |> Helpers.assert_return_value()
   rescue
     e ->
@@ -209,6 +199,28 @@ defmodule ExOperation.DSL do
           callback :: (txn() -> {:ok, txn()} | {:error, term()})
         ) :: Operation.t()
   def after_commit(operation, callback) when is_function(callback, 1) do
-    %{operation | after_commit_callbacks: operation.after_commit_callbacks ++ [callback]}
+    fun =
+      build_multi_run_fun(fn _ ->
+        {:ok, &run_after_commit_callback(operation, callback, &1)}
+      end)
+
+    key = {:__after_commit__, length(operation.multi.operations) + 1}
+    %{operation | multi: operation.multi |> Ecto.Multi.run(key, fun)}
+  end
+
+  defp run_after_commit_callback(operation, callback, txn) do
+    txn |> callback.() |> Helpers.assert_return_value()
+  rescue
+    e ->
+      attrs = [operation: operation, txn: txn, exception: e]
+      reraise AfterCommitError, attrs, System.stacktrace()
+  end
+
+  # `Ecto.Multi.run/2` in Ecto 3 gets a callback with two arguments
+  # while in Ecto 2 it gets a callback with one argument.
+  if @ecto_version |> Version.parse!() |> Version.match?(">= 3.0.0") do
+    defp build_multi_run_fun(fun), do: fn _repo, txn -> fun.(txn) end
+  else
+    defp build_multi_run_fun(fun), do: fun
   end
 end

@@ -403,6 +403,45 @@ defmodule ExOperationTest do
     end
   end
 
+  defmodule AfterCommitInSuboperationSuboperation do
+    use ExOperation.Operation
+
+    def call(operation) do
+      operation
+      |> after_commit(fn txn -> {:ok, Map.put(txn, :foo, :bar)} end)
+    end
+  end
+
+  defmodule AfterCommitInSuboperationOperation do
+    use ExOperation.Operation
+
+    def call(operation) do
+      operation
+      |> suboperation(AfterCommitInSuboperationSuboperation, %{})
+    end
+  end
+
+  test "call after commit callback defined in suboperation" do
+    assert {:ok, txn} = AfterCommitInSuboperationOperation |> ExOperation.run(%{}, %{})
+    assert %{foo: :bar} = txn
+  end
+
+  defmodule AfterCommitInDeferOperation do
+    use ExOperation.Operation
+
+    def call(operation) do
+      operation
+      |> defer(fn op, _txn ->
+        op |> after_commit(fn txn -> {:ok, Map.put(txn, :foo, :bar)} end)
+      end)
+    end
+  end
+
+  test "call after commit callback defined in defer" do
+    assert {:ok, txn} = AfterCommitInDeferOperation |> ExOperation.run(%{}, %{})
+    assert %{foo: :bar} = txn
+  end
+
   ########
   # Repo #
   ########

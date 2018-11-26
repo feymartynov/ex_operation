@@ -84,7 +84,7 @@ defmodule ExOperation do
   where `MyApp.Repo` is the name of your Ecto.Repo module.
   """
 
-  alias ExOperation.{AfterCommitError, Builder, Helpers}
+  alias ExOperation.{Builder, Helpers}
 
   @doc """
   Call an operation from `module`.
@@ -116,26 +116,23 @@ defmodule ExOperation do
   def run(module, context \\ %{}, raw_params \\ %{}) do
     with {:ok, operation} <- Builder.build(module, context, raw_params, id: :main),
          {:ok, txn} <- operation.multi |> repo().transaction() do
-      txn = txn |> Helpers.transform_txn(operation)
       operation |> run_after_commit_callbacks(txn)
     end
   end
 
-  defp run_after_commit_callbacks(operation, txn) do
-    Enum.reduce_while(operation.after_commit_callbacks, {:ok, txn}, fn callback, {:ok, acc} ->
-      case operation |> run_after_commit_callback(callback, acc) do
-        {:ok, txn} -> {:cont, {:ok, txn}}
-        other -> {:halt, other}
-      end
-    end)
-  end
+  defp run_after_commit_callbacks(operation, raw_txn) do
+    txn = raw_txn |> Helpers.transform_txn(operation)
 
-  defp run_after_commit_callback(operation, callback, txn) do
-    txn |> callback.() |> Helpers.assert_return_value()
-  rescue
-    e ->
-      attrs = [operation: operation, txn: txn, exception: e]
-      reraise AfterCommitError, attrs, System.stacktrace()
+    Enum.reduce_while(raw_txn, {:ok, txn}, fn
+      {{:__after_commit__, idx}, callback}, {:ok, acc} ->
+        case callback.(acc) do
+          {:ok, txn} -> {:cont, {:ok, txn}}
+          other -> {:halt, other}
+        end
+
+      _, other ->
+        {:cont, other}
+    end)
   end
 
   @doc false
