@@ -84,7 +84,7 @@ defmodule ExOperation do
   where `MyApp.Repo` is the name of your Ecto.Repo module.
   """
 
-  alias ExOperation.{Builder, Helpers}
+  alias ExOperation.{Builder, DSL.AfterCommitTask, Helpers, Operation}
 
   @doc """
   Call an operation from `module`.
@@ -124,9 +124,9 @@ defmodule ExOperation do
     txn = raw_txn |> Helpers.transform_txn(operation)
 
     Enum.reduce_while(raw_txn, {:ok, txn}, fn
-      {{:__after_commit__, _}, callback}, {:ok, acc} ->
-        case callback.(acc) do
-          {:ok, txn} -> {:cont, {:ok, txn}}
+      {{:__after_commit__, _}, %AfterCommitTask{operation: op, callback: callback}}, {:ok, acc} ->
+        case op |> get_local_txn(acc) |> callback.() do
+          {:ok, local_txn} -> {:cont, {:ok, put_local_txn(op, acc, local_txn)}}
           other -> {:halt, other}
         end
 
@@ -134,6 +134,12 @@ defmodule ExOperation do
         {:cont, other}
     end)
   end
+
+  defp get_local_txn(%Operation{ids: [:main | []]}, txn), do: txn
+  defp get_local_txn(%Operation{ids: [:main | path]}, txn), do: txn |> get_in(path)
+
+  defp put_local_txn(%Operation{ids: [:main | []]}, _txn, value), do: value
+  defp put_local_txn(%Operation{ids: [:main | path]}, txn, value), do: txn |> put_in(path, value)
 
   @doc false
   @spec repo :: Ecto.Repo.t()

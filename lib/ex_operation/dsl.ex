@@ -3,6 +3,10 @@ defmodule ExOperation.DSL do
   Functions that help defining operations.
   """
 
+  defmodule AfterCommitTask do
+    defstruct operation: nil, callback: nil
+  end
+
   alias ExOperation.{Builder, Helpers, Operation}
   alias ExOperation.{AfterCommitError, AssertionError, DeferError, StepError}
 
@@ -201,7 +205,12 @@ defmodule ExOperation.DSL do
   def after_commit(operation, callback) when is_function(callback, 1) do
     fun =
       build_multi_run_fun(fn _ ->
-        {:ok, &run_after_commit_callback(operation, callback, &1)}
+        task = %AfterCommitTask{
+          operation: operation,
+          callback: &run_after_commit_callback(operation, callback, &1)
+        }
+
+        {:ok, task}
       end)
 
     key = {:__after_commit__, :os.system_time(:nanosecond)}

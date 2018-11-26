@@ -61,7 +61,8 @@ defmodule ExOperation.AfterCommitTest do
 
     def call(operation) do
       operation
-      |> after_commit(fn txn -> {:ok, Map.put(txn, :foo, :bar)} end)
+      |> step(:result, fn _ -> {:ok, :bar} end)
+      |> after_commit(&{:ok, Map.put(&1, :foo, &1.result)})
     end
   end
 
@@ -71,14 +72,14 @@ defmodule ExOperation.AfterCommitTest do
     def call(operation) do
       operation
       |> after_commit(fn txn -> {:ok, Map.put(txn, :one, :two)} end)
-      |> suboperation(AfterCommitInSuboperationSuboperation, %{})
+      |> suboperation(AfterCommitInSuboperationSuboperation, %{}, id: :sub)
       |> after_commit(fn txn -> {:ok, Map.put(txn, :three, :four)} end)
     end
   end
 
   test "call after commit callback defined in suboperation" do
     assert {:ok, txn} = AfterCommitInSuboperationOperation |> ExOperation.run(%{}, %{})
-    assert %{one: :two, foo: :bar, three: :four} = txn
+    assert %{one: :two, three: :four, sub: %{result: :bar, foo: :bar}} = txn
   end
 
   defmodule AfterCommitInDeferOperation do
