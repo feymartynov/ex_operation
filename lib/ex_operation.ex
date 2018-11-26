@@ -124,7 +124,7 @@ defmodule ExOperation do
     txn = raw_txn |> Helpers.transform_txn(operation)
 
     Enum.reduce_while(raw_txn, {:ok, txn}, fn
-      {{:__after_commit__, idx}, callback}, {:ok, acc} ->
+      {{:__after_commit__, _}, callback}, {:ok, acc} ->
         case callback.(acc) do
           {:ok, txn} -> {:cont, {:ok, txn}}
           other -> {:halt, other}

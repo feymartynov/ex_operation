@@ -1,5 +1,7 @@
 use Mix.Config
 
+config :logger, level: :warn
+
 config :ex_operation,
   repo: ExOperation.Test.Repo
 
