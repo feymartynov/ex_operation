@@ -15,7 +15,7 @@ defmodule ExOperation.AfterCommitTest do
     end
   end
 
-  test "call after commit hook" do
+  test "call after commit hooks" do
     assert {:ok, txn} = AfterCommitOperation |> ExOperation.run(%{}, %{})
     assert txn[:some_step]
     assert txn[:first_callback]
@@ -31,10 +31,10 @@ defmodule ExOperation.AfterCommitTest do
     end
   end
 
-  @error_regex ~r/Error in `ExOperation.AfterCommitTest.AfterCommitWithBadReturnOperation` in after commit callback:\n\(Elixir.ExOperation.AssertionError\) Expected `{:ok, result}` or {:error, reason}`. Got `:wrong`./
+  @error_regex ~r/Error in `ExOperation.AfterCommitTest.AfterCommitWithBadReturnOperation` in callback:\n\(Elixir.ExOperation.AssertionError\) Expected `{:ok, result}` or {:error, reason}`. Got `:wrong`./
 
   test "raise on bad return from after commit callback" do
-    assert_raise ExOperation.AfterCommitError, @error_regex, fn ->
+    assert_raise ExOperation.CallbackError, @error_regex, fn ->
       AfterCommitWithBadReturnOperation |> ExOperation.run(%{}, %{})
     end
   end
@@ -48,10 +48,10 @@ defmodule ExOperation.AfterCommitTest do
     end
   end
 
-  @error_regex ~r/Error in `ExOperation.AfterCommitTest.RaisingAfterCommitOperation` in after commit callback:\n\(Elixir.RuntimeError\) It failed/
+  @error_regex ~r/Error in `ExOperation.AfterCommitTest.RaisingAfterCommitOperation` in callback:\n\(Elixir.RuntimeError\) It failed/
 
   test "raise inside after commit callback" do
-    assert_raise ExOperation.AfterCommitError, @error_regex, fn ->
+    assert_raise ExOperation.CallbackError, @error_regex, fn ->
       RaisingAfterCommitOperation |> ExOperation.run(%{}, %{})
     end
   end
@@ -82,6 +82,20 @@ defmodule ExOperation.AfterCommitTest do
     assert %{one: :two, three: :four, sub: %{result: :bar, foo: :bar}} = txn
   end
 
+  defmodule AfterCommitInNestedSuboperationOperation do
+    use ExOperation.Operation
+
+    def call(operation) do
+      operation
+      |> suboperation(AfterCommitInSuboperationOperation, %{}, id: :dbl_sub)
+    end
+  end
+
+  test "call after commit callback defined in suboperation of suboperation" do
+    assert {:ok, txn} = AfterCommitInNestedSuboperationOperation |> ExOperation.run(%{}, %{})
+    assert %{dbl_sub: %{one: :two, three: :four, sub: %{result: :bar, foo: :bar}}} = txn
+  end
+
   defmodule AfterCommitInDeferOperation do
     use ExOperation.Operation
 
@@ -98,5 +112,21 @@ defmodule ExOperation.AfterCommitTest do
   test "call after commit callback defined in defer" do
     assert {:ok, txn} = AfterCommitInDeferOperation |> ExOperation.run(%{}, %{})
     assert %{one: :two, foo: :bar, three: :four} = txn
+  end
+
+  defmodule AfterCommitInDeferSubOperationOperation do
+    use ExOperation.Operation
+
+    def call(operation) do
+      operation
+      |> defer(fn op, _txn ->
+        op |> suboperation(AfterCommitInSuboperationSuboperation, %{}, id: :sub)
+      end)
+    end
+  end
+
+  test "call after commit callback defined in suboperation called from defer" do
+    assert {:ok, txn} = AfterCommitInDeferSubOperationOperation |> ExOperation.run(%{}, %{})
+    assert %{sub: %{result: :bar, foo: :bar}} = txn
   end
 end
