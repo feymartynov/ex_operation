@@ -27,11 +27,11 @@ defmodule ExOperation.AfterCommitTest do
 
     def call(operation) do
       operation
-      |> after_commit(fn _ -> :wrong end)
+      |> after_commit(fn _ -> {:ok, :wrong} end)
     end
   end
 
-  @error_regex ~r/Error in `ExOperation.AfterCommitTest.AfterCommitWithBadReturnOperation` in callback:\n\(Elixir.ExOperation.AssertionError\) Expected `{:ok, result}` or {:error, reason}`. Got `:wrong`./
+  @error_regex ~r/Error in `ExOperation.AfterCommitTest.AfterCommitWithBadReturnOperation` in callback:\n\(Elixir.ExOperation.AssertionError\) Expected `{:ok, %{}}` or {:error, reason}`. Got `{:ok, :wrong}`./
 
   test "raise on bad return from after commit callback" do
     assert_raise ExOperation.CallbackError, @error_regex, fn ->

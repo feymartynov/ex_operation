@@ -3,18 +3,11 @@ defmodule ExOperation.DSL do
   Functions that help defining operations.
   """
 
-  defmodule AfterCommitTask do
-    defstruct operation: nil, callback: nil
-  end
-
-  alias ExOperation.{Builder, Helpers, Operation}
-  alias ExOperation.{AfterCommitError, AssertionError, DeferError, StepError}
+  alias ExOperation.{Builder, CallbackTask, Helpers, Operation}
+  alias ExOperation.{AssertionError, DeferError, StepError}
 
   @type name :: any()
   @type txn :: [{name(), any()}]
-
-  @ecto_path Mix.Project.deps_paths().ecto
-  @ecto_version Mix.Project.in_project(:ecto, @ecto_path, & &1.project()[:version])
 
   @doc """
   Adds an arbitrary step to the operation pipeline.
@@ -22,6 +15,12 @@ defmodule ExOperation.DSL do
   `callback` is a function that accepts a map of changes so far where keys are names of previous
   steps and values are their return values.
   It must return either `{:ok, result}` or `{:error, reason}` tuple.
+
+  Don't do long (or potentially long such as calling external services) things in steps as they are
+  runned inside a database transaction. You may catch a timeout or slow down the database's
+  performance. Instead consider introducing an intermediate database state and splitting the
+  operation in two. Run the first part of the logic, in after commit callback schedule an
+  asynchronous task that runs the slow thing and then runs the second part in another transaction.
   """
   @spec step(
           operation :: Operation.t(),
@@ -33,7 +32,7 @@ defmodule ExOperation.DSL do
     step_key = wrapper_ids |> Enum.reduce({operation_id, name}, fn id, acc -> {id, acc} end)
 
     fun =
-      build_multi_run_fun(fn txn ->
+      Helpers.build_multi_run_fun(fn txn ->
         run_step_callback(operation, name, callback, Helpers.transform_txn(txn, operation))
       end)
 
@@ -41,11 +40,19 @@ defmodule ExOperation.DSL do
   end
 
   defp run_step_callback(operation, name, callback, txn) do
-    txn |> callback.() |> Helpers.assert_return_value()
+    txn |> callback.() |> assert_return_value()
   rescue
     e ->
       attrs = [operation: operation, txn: txn, name: name, exception: e]
       reraise StepError, attrs, System.stacktrace()
+  end
+
+  defp assert_return_value({:ok, _} = result), do: result
+  defp assert_return_value({:error, _} = result), do: result
+
+  defp assert_return_value(other) do
+    message = "Expected `{:ok, result}` or {:error, reason}`. Got `#{inspect(other)}`."
+    raise AssertionError, message
   end
 
   @doc """
@@ -139,7 +146,7 @@ defmodule ExOperation.DSL do
         params = suboperation_params(params_or_fun, txn)
         opts = opts |> Keyword.put(:parent_ids, operation.ids)
         {:ok, suboperation} = Builder.build(module, context, params, opts)
-        suboperation.multi
+        suboperation |> refute_before_transaction_callbacks() |> Map.fetch!(:multi)
       end)
 
     %{operation | multi: multi}
@@ -167,12 +174,11 @@ defmodule ExOperation.DSL do
       Ecto.Multi.merge(operation.multi, fn txn ->
         txn = txn |> Helpers.transform_txn(operation)
 
-        %Operation{multi: multi} =
-          operation
-          |> Map.put(:multi, Ecto.Multi.new())
-          |> run_defer_callback(callback, txn)
-
-        multi
+        operation
+        |> Map.put(:multi, Ecto.Multi.new())
+        |> run_defer_callback(callback, txn)
+        |> refute_before_transaction_callbacks()
+        |> Map.fetch!(:multi)
       end)
 
     %{operation | multi: multi}
@@ -191,45 +197,60 @@ defmodule ExOperation.DSL do
   end
 
   @doc """
+  Schedules a `callback` function to run before database transaction start.
+
+  The `callback` receives the transaction map and must return `{:ok, txn}` or `{:error, reason}`
+  like `step/2`'s callback does.
+
+  All hooks are applied in the same order they were added.
+
+  Before transaction hooks are not allowed to be defined in suboperations and defers
+  since the transaction is already started at the moment of the execution.
+  This will raise `ExOperation.AssertionError` an error in runtime.
+
+  Since before transactions hooks can't be used in suboperations operations that use them
+  lose their composability feature so don't overuse this kind of callbacks.
+  Make sure that it will always be a top-level operation.
+
+  If you want to make a before transaction callback in a suboperation or defer consider
+  splitting up the operation in two. Put an after commit callback into your first part that
+  schedules an asynchronous task that does what you wanted to do in between and then runs
+  the second operation.
+  """
+  @spec before_transaction(
+          operation :: Operation.t(),
+          callback :: (txn() -> {:ok, txn()} | {:error, term()})
+        ) :: Operation.t()
+  def before_transaction(operation, callback) when is_function(callback, 1) do
+    callback_task = CallbackTask.build(operation, callback)
+    operation.before_transaction_callbacks |> update_in(&[callback_task | &1])
+  end
+
+  @doc """
   Schedules a `callback` function to run after successful database transaction commit.
 
   The `callback` receives the transaction map and must return `{:ok, txn}` or `{:error, reason}`
   like `step/2`'s callback does.
 
-  All hooks are being applied in the same order they were added.
+  All hooks are applied in the same order they were added.
   """
   @spec after_commit(
           operation :: Operation.t(),
           callback :: (txn() -> {:ok, txn()} | {:error, term()})
         ) :: Operation.t()
   def after_commit(operation, callback) when is_function(callback, 1) do
-    fun =
-      build_multi_run_fun(fn _ ->
-        task = %AfterCommitTask{
-          operation: operation,
-          callback: &run_after_commit_callback(operation, callback, &1)
-        }
-
-        {:ok, task}
-      end)
-
     key = {:__after_commit__, :os.system_time(:nanosecond)}
-    %{operation | multi: operation.multi |> Ecto.Multi.run(key, fun)}
+    fun = Helpers.build_multi_run_fun(fn _ -> {:ok, CallbackTask.build(operation, callback)} end)
+    operation.multi |> update_in(&Ecto.Multi.run(&1, key, fun))
   end
 
-  defp run_after_commit_callback(operation, callback, txn) do
-    txn |> callback.() |> Helpers.assert_return_value()
-  rescue
-    e ->
-      attrs = [operation: operation, txn: txn, exception: e]
-      reraise AfterCommitError, attrs, System.stacktrace()
-  end
-
-  # `Ecto.Multi.run/2` in Ecto 3 gets a callback with two arguments
-  # while in Ecto 2 it gets a callback with one argument.
-  if @ecto_version |> Version.parse!() |> Version.match?(">= 3.0.0") do
-    defp build_multi_run_fun(fun), do: fn _repo, txn -> fun.(txn) end
-  else
-    defp build_multi_run_fun(fun), do: fun
+  defp refute_before_transaction_callbacks(operation) do
+    if operation.before_transaction_callbacks == [] do
+      operation
+    else
+      raise AssertionError, """
+      Before transaction callbacks are not allowed in defers or suboperations.
+      """
+    end
   end
 end

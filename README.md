@@ -77,7 +77,7 @@ An example Phoenix app can be found here: [ex_operation_phoenix_example](https:/
 * Context passing. Useful for passing current user, current locale etc.
 * Composable operations: one operation can call another through `suboperation/3` function.
 * Changing operation scenario based on previous steps results with `defer/2`.
-* After commit hooks for scheduling asynchronous things.
+* Hooks: `before_transaction/1`, `after_commit/1`.
 
 ## Installation
 

@@ -84,7 +84,7 @@ defmodule ExOperation do
   where `MyApp.Repo` is the name of your Ecto.Repo module.
   """
 
-  alias ExOperation.{Builder, DSL.AfterCommitTask, Helpers, Operation}
+  alias ExOperation.{Builder, CallbackTask, Helpers}
 
   @doc """
   Call an operation from `module`.
@@ -115,18 +115,40 @@ defmodule ExOperation do
           | {:error, step_name :: any(), reason :: any(), txn :: map()}
   def run(module, context \\ %{}, raw_params \\ %{}) do
     with {:ok, operation} <- Builder.build(module, context, raw_params, id: :main),
-         {:ok, txn} <- operation.multi |> repo().transaction() do
+         {:ok, txn} <- operation |> run_before_transaction_callbacks(),
+         operation <- operation |> merge_txn(txn),
+         {:ok, txn} <- operation.multi |> repo().transaction do
       operation |> run_after_commit_callbacks(txn)
     end
+  end
+
+  defp run_before_transaction_callbacks(operation) do
+    operation.before_transaction_callbacks
+    |> Enum.reverse()
+    |> Enum.reduce_while({:ok, %{}}, fn callback_task, {:ok, acc} ->
+      case CallbackTask.run(callback_task, acc) do
+        {:ok, txn} -> {:cont, {:ok, txn}}
+        other -> {:halt, other}
+      end
+    end)
+  end
+
+  defp merge_txn(operation, txn) do
+    multi =
+      Enum.reduce(txn, Ecto.Multi.new(), fn {key, value}, acc ->
+        acc |> Ecto.Multi.run({:main, key}, Helpers.build_multi_run_fun(fn _ -> {:ok, value} end))
+      end)
+
+    operation.multi |> update_in(&Ecto.Multi.prepend(&1, multi))
   end
 
   defp run_after_commit_callbacks(operation, raw_txn) do
     txn = raw_txn |> Helpers.transform_txn(operation)
 
     Enum.reduce_while(raw_txn, {:ok, txn}, fn
-      {{:__after_commit__, _}, %AfterCommitTask{operation: op, callback: callback}}, {:ok, acc} ->
-        case op |> get_local_txn(acc) |> callback.() do
-          {:ok, local_txn} -> {:cont, {:ok, put_local_txn(op, acc, local_txn)}}
+      {{:__after_commit__, _}, callback_task}, {:ok, acc} ->
+        case CallbackTask.run(callback_task, acc) do
+          {:ok, txn} -> {:cont, {:ok, txn}}
           other -> {:halt, other}
         end
 
@@ -134,12 +156,6 @@ defmodule ExOperation do
         {:cont, other}
     end)
   end
-
-  defp get_local_txn(%Operation{ids: [:main | []]}, txn), do: txn
-  defp get_local_txn(%Operation{ids: [:main | path]}, txn), do: txn |> get_in(path)
-
-  defp put_local_txn(%Operation{ids: [:main | []]}, _txn, value), do: value
-  defp put_local_txn(%Operation{ids: [:main | path]}, txn, value), do: txn |> put_in(path, value)
 
   @doc false
   @spec repo :: Ecto.Repo.t()

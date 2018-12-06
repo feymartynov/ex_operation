@@ -5,7 +5,8 @@ defmodule ExOperation.Operation do
             multi: nil,
             ids: [],
             context: %{},
-            params: %{}
+            params: %{},
+            before_transaction_callbacks: []
 
   @type t :: %__MODULE__{}
   @callback call(operation :: t()) :: t()

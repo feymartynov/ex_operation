@@ -1,6 +1,9 @@
 defmodule ExOperation.Helpers do
   @moduledoc false
 
+  @ecto_path Mix.Project.deps_paths().ecto
+  @ecto_version Mix.Project.in_project(:ecto, @ecto_path, & &1.project()[:version])
+
   @doc """
   Transforms the operation result `txn` map to a convenient form for the `operation`.
   """
@@ -26,13 +29,14 @@ defmodule ExOperation.Helpers do
   end
 
   @doc """
-  Asserts callback functions to return `{:ok, result}` or `{:error, reason}` tuple.
-  """
-  def assert_return_value({:ok, _} = result), do: result
-  def assert_return_value({:error, _} = result), do: result
+  Builds an `Ecto.Multi.run/2` callback.
 
-  def assert_return_value(other) do
-    message = "Expected `{:ok, result}` or {:error, reason}`. Got `#{inspect(other)}`."
-    raise ExOperation.AssertionError, message
+  `Ecto.Multi.run/2` in Ecto 3 gets a callback with two arguments
+  while in Ecto 2 it gets a callback with one argument.
+  """
+  if @ecto_version |> Version.parse!() |> Version.match?(">= 3.0.0") do
+    def build_multi_run_fun(fun), do: fn _repo, txn -> fun.(txn) end
+  else
+    def build_multi_run_fun(fun), do: fun
   end
 end

@@ -23,14 +23,14 @@ defmodule ExOperation.StepError do
   end
 end
 
-defmodule ExOperation.AfterCommitError do
+defmodule ExOperation.CallbackError do
   @moduledoc false
 
   defexception [:operation, :txn, :exception]
 
   def message(%{operation: operation, txn: txn, exception: exception}) do
     """
-    Error in `#{inspect(operation.module)}` in after commit callback:
+    Error in `#{inspect(operation.module)}` in callback:
     (#{exception.__struct__}) #{Exception.message(exception)}
 
     Current transaction state:
