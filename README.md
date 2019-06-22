@@ -4,8 +4,6 @@
 
 A library for making domain operations wrapped in a single database transaction.
 
-**WARNING:** This library is in active development state. Breaking changes are possible between minor releases.
-
 ## Resources
 
 * [Documentation](https://hexdocs.pm/ex_operation)
